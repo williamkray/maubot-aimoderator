@@ -1,8 +1,3 @@
-# sleep time between actions. you can drop this to 0 if your bot has no
-# ratelimits imposed on its homeserver, otherwise you may want to increase this
-# to avoid errors.
-sleep: 1
-
 # list of users who will not be moderated
 admins:
   - '@user1:server.tld'
@@ -19,7 +14,7 @@ uncensor_pl: 1
 moderate_files: true
 
 # threshold score (0-10) above which messages will be redacted
-ai_mod_threshold: '7'
+ai_mod_threshold: 7
 
 # API key for the AI moderation service
 ai_mod_api_key: myapikeygoeshere

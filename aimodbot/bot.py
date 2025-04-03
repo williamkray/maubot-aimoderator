@@ -16,7 +16,6 @@ from maubot.handlers import event
 
 class Config(BaseProxyConfig):
     def do_update(self, helper: ConfigUpdateHelper) -> None:
-        helper.copy("sleep")
         helper.copy("admins")
         helper.copy("uncensor_pl")
         helper.copy("moderate_files")
