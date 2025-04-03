@@ -1,0 +1,33 @@
+# sleep time between actions. you can drop this to 0 if your bot has no
+# ratelimits imposed on its homeserver, otherwise you may want to increase this
+# to avoid errors.
+sleep: 1
+
+# list of users who will not be moderated
+admins:
+  - '@user1:server.tld'
+  - '@user2:server.tld'
+
+
+# power level required to not be moderated, if a user is not listed in the admins variable
+# most rooms default to PL0 for new users, so setting this to 1 means bumping a user up to PL1
+# is enough for them to be able to say anything they want without being moderated.
+uncensor_pl: 1
+
+# whether to attempt to moderate file and image uploads. this requires that the AI endpoint
+# you use supports file uploads.
+moderate_files: true
+
+# threshold score (0-10) above which messages will be redacted
+ai_mod_threshold: '7'
+
+# API key for the AI moderation service
+ai_mod_api_key: myapikeygoeshere
+
+# endpoint URL for the AI moderation API
+# use your favorite service or run a model locally. your results will vary.
+ai_mod_api_endpoint: 'http://localhost:8000/v1/chat/completions'
+
+# model name to use with the AI moderation API  
+# use your favorite model. your results will vary.
+ai_mod_api_model: 'my-favorite-llama-model'
