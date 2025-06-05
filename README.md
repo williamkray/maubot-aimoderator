@@ -14,9 +14,37 @@ and so the following caveats apply:
 5. the endpoint must be compatible with openai's chat completions api (localai.io provides this compatibility, for
    example).
 
+## New Features
+
+- **Configurable Join Notices**: You can now control whether the bot sends a notice when users join rooms.
+  - `enable_join_notice`: Set to `true` to enable or `false` to disable join notices (default: `true`)
+  - `custom_notice_text`: Customize the notice text sent when users join rooms. If empty, a default message will be used.
+
+## Configuration
+
+Edit `base-config.yaml` to configure:
+
+```yaml
+# Enable/disable join notices
+enable_join_notice: true
+
+# Custom join notice text (optional)
+custom_notice_text: ""
+
+# Other existing configuration options...
+admins:
+  - '@user1:server.tld'
+uncensor_pl: 1
+moderate_files: true
+ai_mod_threshold: 7
+ai_mod_api_key: myapikeygoeshere
+ai_mod_api_endpoint: 'http://localhost:8000/v1/chat/completions'
+ai_mod_api_model: 'my-favorite-llama-model'
+```
+
 # installation
 
 install this like any other maubot plugin: zip the contents of this repo into a file and upload via the web interface,
-or use the `mbc` utility to package and upload to your maubot server. 
+or use the `mbc` utility to package and upload to your maubot server.
 
 be sure to give your bot permission to redact messages from other users, otherwise features will not work!

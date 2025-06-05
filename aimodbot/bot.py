@@ -23,6 +23,8 @@ class Config(BaseProxyConfig):
         helper.copy("ai_mod_api_key")
         helper.copy("ai_mod_api_endpoint")
         helper.copy("ai_mod_api_model")
+        helper.copy("enable_join_notice")
+        helper.copy("custom_notice_text")
 
 
 class AIModerator(Plugin):
@@ -45,6 +47,7 @@ class AIModerator(Plugin):
         await super().stop()
 
     async def ai_analyze(self, msg) -> None:
+        # 使用配置快照
         sys_prompt = """
 You are a content moderation engine. It is critical that you consistently respond with valid JSON.
 assess the included message content and identify whether it is a potential scam or spam message,
@@ -111,6 +114,7 @@ programmatic content moderation system to work.
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self.config['ai_mod_api_key']}",
         }
+        # 使用配置快照
         data = {"model": self.config["ai_mod_api_model"], "messages": context}
 
         max_retries = 3
@@ -208,26 +212,47 @@ programmatic content moderation system to work.
                 await evt.respond(error_msg)
             return False, error_msg, {}
 
+    async def start(self) -> None:
+        await super().start()
+        self.config.load_and_update()
+        self.client.add_dispatcher(MembershipEventDispatcher)
+        
+        # Create config snapshot
+        self.admins = self.config["admins"] or []
+        self.uncensor_pl = self.config["uncensor_pl"] or 0
+        self.enable_join_notice = self.config["enable_join_notice"]
+        self.custom_notice_text = self.config["custom_notice_text"]
+        self.ai_mod_api_endpoint = self.config["ai_mod_api_endpoint"]
+        self.moderate_files = self.config["moderate_files"]
+        self.ai_mod_threshold = self.config["ai_mod_threshold"]
+        
+        # Initialize welcome tracking
+        self.welcomed_joins = set()
+
     @event.on(InternalEventType.JOIN)
     async def newjoin(self, evt: StateEvent) -> None:
-        if evt.source & SyncStream.STATE:
+        # Use room ID + user ID as unique identifier
+        join_key = (evt.room_id, evt.sender)
+        if join_key in self.welcomed_joins:
             return
-        else:
-            # Send AI moderation notice when someone joins
-                aimod_greeting = (
-                    "<em>IMPORTANT: this room is under moderation by machine-learning. "
-                    "All messages may be sent for analysis to {endpoint}. This conversation "
-                    "is not as private as you may think!</em>".format(
-                        endpoint=self.config["ai_mod_api_endpoint"]
-                        )
-                    )
-                await self.client.send_notice(evt.room_id, html=aimod_greeting)
+            
+        self.welcomed_joins.add(join_key)
+        
+        # Send AI moderation notice if enabled
+        if self.enable_join_notice:
+            notice_text = self.custom_notice_text or (
+                "<em>IMPORTANT: this room is under moderation by machine-learning. "
+                "All messages may be sent for analysis to {endpoint}. This conversation "
+                "is not as private as you may think!</em>".format(
+                    endpoint=self.ai_mod_api_endpoint
+                )
+            )
+            await self.client.send_notice(evt.room_id, html=notice_text)
 
     @event.on(EventType.ROOM_MESSAGE)
     async def analyze_message(self, evt: MessageEvent) -> None:
-
         # Skip if it's a file and file moderation is disabled
-        if isinstance(evt.content, MediaMessageEventContent) and not self.config["moderate_files"]:
+        if isinstance(evt.content, MediaMessageEventContent) and not self.moderate_files:
             return
 
         power_levels = await self.client.get_state_event(
@@ -236,12 +261,13 @@ programmatic content moderation system to work.
         user_level = power_levels.get_user_level(evt.sender)
 
         # Check if user should have their message analyzed by AI
-        if (evt.sender not in self.config["admins"]
-            and user_level < self.config["uncensor_pl"]
+        # Use config snapshot for safety checks
+        if (evt.sender not in self.admins
+            and user_level < self.uncensor_pl
             and evt.sender != self.client.mxid):
             # Check bot permissions
             has_perms, error_msg, perm_details = await self.check_bot_permissions(
-                evt.room_id, 
+                evt.room_id,
                 evt,
                 ["redact"]
             )
@@ -250,19 +276,19 @@ programmatic content moderation system to work.
             await evt.mark_read()
             score = await self.ai_analyze(evt)
             if not score:  # Skip if analysis failed
-                    return
-
-            self.log.debug(f"DEBUG message score: {score['comment']} ({score['analysis']})")
+                return
             
-            # If score is high enough, either redact or notify about missing permissions
-            if self.flag_score(score):
+            self.log.debug(f"Message score: {score.get('comment', '')} ({score.get('analysis', '')})")
+            
+            # Use threshold from config snapshot
+            if score["max"] >= self.ai_mod_threshold:
                 if has_perms:
                     try:
                         await self.client.redact(
                             evt.room_id, evt.event_id, reason=score["comment"]
                         )
                     except Exception as e:
-                        self.log.error(f"AI-flagged message should be redacted: {e}")
+                        self.log.error(f"Failed to redact AI-flagged message: {e}")
                 else:
                     # Get the required power level for redaction
                     redact_pl = perm_details["redact"]["required_level"]
