@@ -23,8 +23,6 @@ class Config(BaseProxyConfig):
         helper.copy("ai_mod_api_key")
         helper.copy("ai_mod_api_endpoint")
         helper.copy("ai_mod_api_model")
-        helper.copy("enable_join_notice")
-        helper.copy("custom_notice_text")
         helper.copy("allowed_msgtypes")
         helper.copy("allowed_mimetypes")
         helper.copy("enable_msgtype_filter")
@@ -50,7 +48,6 @@ class AIModerator(Plugin):
         await super().stop()
 
     async def ai_analyze(self, msg) -> None:
-        # 使用配置快照
         sys_prompt = """
 You are a content moderation engine. It is critical that you consistently respond with valid JSON.
 assess the included message content and identify whether it is a potential scam or spam message,
@@ -117,7 +114,6 @@ programmatic content moderation system to work.
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self.config['ai_mod_api_key']}",
         }
-        # 使用配置快照
         data = {"model": self.config["ai_mod_api_model"], "messages": context}
 
         max_retries = 3
@@ -215,6 +211,8 @@ programmatic content moderation system to work.
                 await evt.respond(error_msg)
             return False, error_msg, {}
 
+
+
     def is_message_allowed(self, evt: MessageEvent) -> bool:
         """Check if message type and media type are allowed"""
         # Default allowed message types
@@ -243,66 +241,44 @@ programmatic content moderation system to work.
                 
         return True
 
-    async def start(self) -> None:
-        await super().start()
-        self.config.load_and_update()
-        self.client.add_dispatcher(MembershipEventDispatcher)
-        
-        # Create config snapshot
-        self.admins = self.config["admins"] or []
-        self.uncensor_pl = self.config["uncensor_pl"] or 0
-        self.enable_join_notice = self.config["enable_join_notice"]
-        self.custom_notice_text = self.config["custom_notice_text"]
-        self.ai_mod_api_endpoint = self.config["ai_mod_api_endpoint"]
-        self.moderate_files = self.config["moderate_files"]
-        self.ai_mod_threshold = self.config["ai_mod_threshold"]
-        # Add message type filtering config snapshot
-        self.enable_msgtype_filter = self.config.get("enable_msgtype_filter", False)
-        self.allowed_msgtypes = self.config.get("allowed_msgtypes", ["m.text", "m.image"])
-        self.allowed_mimetypes = self.config.get("allowed_mimetypes",
-            ["image/jpeg", "image/png", "image/webp", "image/gif"])
-        
-        # Initialize welcome tracking
-        self.welcomed_joins = set()
-
     @event.on(InternalEventType.JOIN)
     async def newjoin(self, evt: StateEvent) -> None:
-        # Use room ID + user ID as unique identifier
-        join_key = (evt.room_id, evt.sender)
-        if join_key in self.welcomed_joins:
+        if evt.source & SyncStream.STATE:
             return
-            
-        self.welcomed_joins.add(join_key)
-        
-        # Send AI moderation notice if enabled
-        if self.enable_join_notice:
-            notice_text = self.custom_notice_text or (
-                "<em>IMPORTANT: this room is under moderation by machine-learning. "
-                "All messages may be sent for analysis to {endpoint}. This conversation "
-                "is not as private as you may think!</em>".format(
-                    endpoint=self.ai_mod_api_endpoint
-                )
-            )
-            await self.client.send_notice(evt.room_id, html=notice_text)
+        else:
+            # Send AI moderation notice when someone joins
+                aimod_greeting = (
+                    "<em>IMPORTANT: this room is under moderation by machine-learning. "
+                    "All messages may be sent for analysis to {endpoint}. This conversation "
+                    "is not as private as you may think!</em>".format(
+                        endpoint=self.config["ai_mod_api_endpoint"]
+                        )
+                    )
+                await self.client.send_notice(evt.room_id, html=aimod_greeting)
 
     @event.on(EventType.ROOM_MESSAGE)
     async def analyze_message(self, evt: MessageEvent) -> None:
-        # Skip admins and users above uncensor_pl for message type filtering
+        
+        # Skip if it's a file and file moderation is disabled
+        if isinstance(evt.content, MediaMessageEventContent) and not self.config["moderate_files"]:
+            return
+
         power_levels = await self.client.get_state_event(
             evt.room_id, EventType.ROOM_POWER_LEVELS
         )
         user_level = power_levels.get_user_level(evt.sender)
-        
-        # Skip message type filtering for admins and privileged users
-        if (evt.sender in self.admins or
-            user_level >= self.uncensor_pl or
-            evt.sender == self.client.mxid):
-            pass
-        # Apply message type filtering
-        elif self.enable_msgtype_filter and not self.is_message_allowed(evt):
+
+        # Apply message type filtering if enabled
+        if (self.config.get("enable_msgtype_filter", False) and
+            (evt.sender not in self.config["admins"]) and
+            (user_level < self.config["uncensor_pl"]) and
+            (evt.sender != self.client.mxid) and
+            not self.is_message_allowed(evt)):
+            
             has_perms, error_msg, perm_details = await self.check_bot_permissions(
                 evt.room_id, evt, ["redact"]
             )
+            
             if has_perms:
                 # Get reason for rejection
                 msgtype = evt.content.msgtype.value
@@ -313,26 +289,16 @@ programmatic content moderation system to work.
                     mimetype = getattr(evt.content.info, "mimetype", "")
                     if mimetype:
                         reason += f" ({mimetype})"
-                    
+                
                 await self.client.redact(evt.room_id, evt.event_id, reason=reason)
                 self.log.info(f"Deleted disallowed message: {evt.event_id} - {reason}")
             else:
                 self.log.warning(f"Missing permissions to delete message: {error_msg}")
             return
-            
-        # Skip if it's a file and file moderation is disabled
-        if isinstance(evt.content, MediaMessageEventContent) and not self.moderate_files:
-            return
-
-        power_levels = await self.client.get_state_event(
-            evt.room_id, EventType.ROOM_POWER_LEVELS
-        )
-        user_level = power_levels.get_user_level(evt.sender)
 
         # Check if user should have their message analyzed by AI
-        # Use config snapshot for safety checks
-        if (evt.sender not in self.admins
-            and user_level < self.uncensor_pl
+        if (evt.sender not in self.config["admins"]
+            and user_level < self.config["uncensor_pl"]
             and evt.sender != self.client.mxid):
             # Check bot permissions
             has_perms, error_msg, perm_details = await self.check_bot_permissions(
@@ -345,19 +311,19 @@ programmatic content moderation system to work.
             await evt.mark_read()
             score = await self.ai_analyze(evt)
             if not score:  # Skip if analysis failed
-                return
+                    return
+
+            self.log.debug(f"DEBUG message score: {score['comment']} ({score['analysis']})")
             
-            self.log.debug(f"Message score: {score.get('comment', '')} ({score.get('analysis', '')})")
-            
-            # Use threshold from config snapshot
-            if score["max"] >= self.ai_mod_threshold:
+            # If score is high enough, either redact or notify about missing permissions
+            if self.flag_score(score):
                 if has_perms:
                     try:
                         await self.client.redact(
                             evt.room_id, evt.event_id, reason=score["comment"]
                         )
                     except Exception as e:
-                        self.log.error(f"Failed to redact AI-flagged message: {e}")
+                        self.log.error(f"AI-flagged message should be redacted: {e}")
                 else:
                     # Get the required power level for redaction
                     redact_pl = perm_details["redact"]["required_level"]

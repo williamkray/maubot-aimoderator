@@ -27,12 +27,6 @@ ai_mod_api_endpoint: 'http://localhost:8000/v1/chat/completions'
 # use your favorite model. your results will vary.
 ai_mod_api_model: 'my-favorite-llama-model'
 
-# whether to send notice when someone joins the room
-enable_join_notice: true
-
-# custom text for join notice
-custom_notice_text: ''
-
 # Message type filtering configuration
 # Whether to enable message type filtering
 enable_msgtype_filter: true
@@ -45,4 +39,4 @@ allowed_mimetypes:
   - "image/jpeg"
   - "image/png"
   - "image/webp"
-  - "image/gif"  # Non-animated GIF only
+  - "image/gif"
