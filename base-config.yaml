@@ -32,3 +32,17 @@ enable_join_notice: true
 
 # custom text for join notice
 custom_notice_text: ''
+
+# Message type filtering configuration
+# Whether to enable message type filtering
+enable_msgtype_filter: true
+# Allowed message types
+allowed_msgtypes:
+  - "m.text"
+  - "m.image"
+# Allowed media types (only for m.image messages)
+allowed_mimetypes:
+  - "image/jpeg"
+  - "image/png"
+  - "image/webp"
+  - "image/gif"  # Non-animated GIF only

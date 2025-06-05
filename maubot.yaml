@@ -1,6 +1,6 @@
 maubot: 0.1.0
 id: org.jobmachine.aimodbot
-version: 0.1.23
+version: 0.1.26
 license: MIT
 modules:
   - aimodbot

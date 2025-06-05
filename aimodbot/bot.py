@@ -25,6 +25,9 @@ class Config(BaseProxyConfig):
         helper.copy("ai_mod_api_model")
         helper.copy("enable_join_notice")
         helper.copy("custom_notice_text")
+        helper.copy("allowed_msgtypes")
+        helper.copy("allowed_mimetypes")
+        helper.copy("enable_msgtype_filter")
 
 
 class AIModerator(Plugin):
@@ -212,6 +215,34 @@ programmatic content moderation system to work.
                 await evt.respond(error_msg)
             return False, error_msg, {}
 
+    def is_message_allowed(self, evt: MessageEvent) -> bool:
+        """Check if message type and media type are allowed"""
+        # Default allowed message types
+        default_msgtypes = ["m.text", "m.image"]
+        # Default allowed media types
+        default_mimetypes = [
+            "image/jpeg", "image/png", "image/webp", "image/gif"
+        ]
+        
+        # Get configuration
+        allowed_msgtypes = self.config.get("allowed_msgtypes", default_msgtypes)
+        allowed_mimetypes = self.config.get("allowed_mimetypes", default_mimetypes)
+        
+        # Check message type
+        msgtype = evt.content.msgtype.value
+        if msgtype not in allowed_msgtypes:
+            return False
+            
+        # For image messages, check mimetype
+        if msgtype == "m.image":
+            # Ensure it's a media message before accessing info
+            if isinstance(evt.content, MediaMessageEventContent):
+                mimetype = getattr(evt.content.info, "mimetype", None)
+                if mimetype and mimetype not in allowed_mimetypes:
+                    return False
+                
+        return True
+
     async def start(self) -> None:
         await super().start()
         self.config.load_and_update()
@@ -225,6 +256,11 @@ programmatic content moderation system to work.
         self.ai_mod_api_endpoint = self.config["ai_mod_api_endpoint"]
         self.moderate_files = self.config["moderate_files"]
         self.ai_mod_threshold = self.config["ai_mod_threshold"]
+        # Add message type filtering config snapshot
+        self.enable_msgtype_filter = self.config.get("enable_msgtype_filter", False)
+        self.allowed_msgtypes = self.config.get("allowed_msgtypes", ["m.text", "m.image"])
+        self.allowed_mimetypes = self.config.get("allowed_mimetypes",
+            ["image/jpeg", "image/png", "image/webp", "image/gif"])
         
         # Initialize welcome tracking
         self.welcomed_joins = set()
@@ -251,6 +287,39 @@ programmatic content moderation system to work.
 
     @event.on(EventType.ROOM_MESSAGE)
     async def analyze_message(self, evt: MessageEvent) -> None:
+        # Skip admins and users above uncensor_pl for message type filtering
+        power_levels = await self.client.get_state_event(
+            evt.room_id, EventType.ROOM_POWER_LEVELS
+        )
+        user_level = power_levels.get_user_level(evt.sender)
+        
+        # Skip message type filtering for admins and privileged users
+        if (evt.sender in self.admins or
+            user_level >= self.uncensor_pl or
+            evt.sender == self.client.mxid):
+            pass
+        # Apply message type filtering
+        elif self.enable_msgtype_filter and not self.is_message_allowed(evt):
+            has_perms, error_msg, perm_details = await self.check_bot_permissions(
+                evt.room_id, evt, ["redact"]
+            )
+            if has_perms:
+                # Get reason for rejection
+                msgtype = evt.content.msgtype.value
+                reason = f"Disallowed message type: {msgtype}"
+                
+                # For image messages, add mimetype to reason
+                if msgtype == "m.image" and isinstance(evt.content, MediaMessageEventContent):
+                    mimetype = getattr(evt.content.info, "mimetype", "")
+                    if mimetype:
+                        reason += f" ({mimetype})"
+                    
+                await self.client.redact(evt.room_id, evt.event_id, reason=reason)
+                self.log.info(f"Deleted disallowed message: {evt.event_id} - {reason}")
+            else:
+                self.log.warning(f"Missing permissions to delete message: {error_msg}")
+            return
+            
         # Skip if it's a file and file moderation is disabled
         if isinstance(evt.content, MediaMessageEventContent) and not self.moderate_files:
             return

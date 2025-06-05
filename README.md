@@ -20,6 +20,11 @@ and so the following caveats apply:
   - `enable_join_notice`: Set to `true` to enable or `false` to disable join notices (default: `true`)
   - `custom_notice_text`: Customize the notice text sent when users join rooms. If empty, a default message will be used.
 
+- **Message Type Filtering**: Added support for filtering messages by type to prevent unwanted content.
+  - `enable_msgtype_filter`: Enable/disable message type filtering (default: `true`)
+  - `allowed_msgtypes`: List of allowed message types (default: `m.text`, `m.image`)
+  - `allowed_mimetypes`: List of allowed media types for images (default: common image formats)
+
 ## Configuration
 
 Edit `base-config.yaml` to configure:
@@ -40,6 +45,17 @@ ai_mod_threshold: 7
 ai_mod_api_key: myapikeygoeshere
 ai_mod_api_endpoint: 'http://localhost:8000/v1/chat/completions'
 ai_mod_api_model: 'my-favorite-llama-model'
+
+# Message type filtering configuration
+enable_msgtype_filter: true
+allowed_msgtypes:
+  - "m.text"
+  - "m.image"
+allowed_mimetypes:
+  - "image/jpeg"
+  - "image/png"
+  - "image/webp"
+  - "image/gif"  # Non-animated GIF only
 ```
 
 # installation
