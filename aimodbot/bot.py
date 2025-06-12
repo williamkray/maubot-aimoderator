@@ -23,6 +23,9 @@ class Config(BaseProxyConfig):
         helper.copy("ai_mod_api_key")
         helper.copy("ai_mod_api_endpoint")
         helper.copy("ai_mod_api_model")
+        helper.copy("allowed_msgtypes")
+        helper.copy("allowed_mimetypes")
+        helper.copy("enable_msgtype_filter")
 
 
 class AIModerator(Plugin):
@@ -208,6 +211,36 @@ programmatic content moderation system to work.
                 await evt.respond(error_msg)
             return False, error_msg, {}
 
+
+
+    def is_message_allowed(self, evt: MessageEvent) -> bool:
+        """Check if message type and media type are allowed"""
+        # Default allowed message types
+        default_msgtypes = ["m.text", "m.image"]
+        # Default allowed media types
+        default_mimetypes = [
+            "image/jpeg", "image/png", "image/webp", "image/gif"
+        ]
+        
+        # Get configuration
+        allowed_msgtypes = self.config.get("allowed_msgtypes", default_msgtypes)
+        allowed_mimetypes = self.config.get("allowed_mimetypes", default_mimetypes)
+        
+        # Check message type
+        msgtype = evt.content.msgtype.value
+        if msgtype not in allowed_msgtypes:
+            return False
+            
+        # For image messages, check mimetype
+        if msgtype == "m.image":
+            # Ensure it's a media message before accessing info
+            if isinstance(evt.content, MediaMessageEventContent):
+                mimetype = getattr(evt.content.info, "mimetype", None)
+                if mimetype and mimetype not in allowed_mimetypes:
+                    return False
+                
+        return True
+
     @event.on(InternalEventType.JOIN)
     async def newjoin(self, evt: StateEvent) -> None:
         if evt.source & SyncStream.STATE:
@@ -225,7 +258,7 @@ programmatic content moderation system to work.
 
     @event.on(EventType.ROOM_MESSAGE)
     async def analyze_message(self, evt: MessageEvent) -> None:
-
+        
         # Skip if it's a file and file moderation is disabled
         if isinstance(evt.content, MediaMessageEventContent) and not self.config["moderate_files"]:
             return
@@ -235,13 +268,41 @@ programmatic content moderation system to work.
         )
         user_level = power_levels.get_user_level(evt.sender)
 
+        # Apply message type filtering if enabled
+        if (self.config.get("enable_msgtype_filter", False) and
+            (evt.sender not in self.config["admins"]) and
+            (user_level < self.config["uncensor_pl"]) and
+            (evt.sender != self.client.mxid) and
+            not self.is_message_allowed(evt)):
+            
+            has_perms, error_msg, perm_details = await self.check_bot_permissions(
+                evt.room_id, evt, ["redact"]
+            )
+            
+            if has_perms:
+                # Get reason for rejection
+                msgtype = evt.content.msgtype.value
+                reason = f"Disallowed message type: {msgtype}"
+                
+                # For image messages, add mimetype to reason
+                if msgtype == "m.image" and isinstance(evt.content, MediaMessageEventContent):
+                    mimetype = getattr(evt.content.info, "mimetype", "")
+                    if mimetype:
+                        reason += f" ({mimetype})"
+                
+                await self.client.redact(evt.room_id, evt.event_id, reason=reason)
+                self.log.info(f"Deleted disallowed message: {evt.event_id} - {reason}")
+            else:
+                self.log.warning(f"Missing permissions to delete message: {error_msg}")
+            return
+
         # Check if user should have their message analyzed by AI
         if (evt.sender not in self.config["admins"]
             and user_level < self.config["uncensor_pl"]
             and evt.sender != self.client.mxid):
             # Check bot permissions
             has_perms, error_msg, perm_details = await self.check_bot_permissions(
-                evt.room_id, 
+                evt.room_id,
                 evt,
                 ["redact"]
             )
