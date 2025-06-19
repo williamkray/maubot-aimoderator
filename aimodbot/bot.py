@@ -51,7 +51,7 @@ class AIModerator(Plugin):
         sys_prompt = """
 You are a content moderation engine. It is critical that you consistently respond with valid JSON. assess the included
 message content and identify whether it is a potential scam or spam message, includes excessive whitespace or other
-formatting intended to overwhelm users clients, or is otherwise inappropriate content. rate the message based on
+spammy formatting intended to overwhelm users clients, or is otherwise inappropriate content. rate the message based on
 offensive or vitriolic content, inclusion of questionable links, etc. return ONLY the following json format:
 
 {
