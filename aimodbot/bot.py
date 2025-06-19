@@ -49,10 +49,10 @@ class AIModerator(Plugin):
 
     async def ai_analyze(self, msg) -> None:
         sys_prompt = """
-You are a content moderation engine. It is critical that you consistently respond with valid JSON.
-assess the included message content and identify whether it is a potential scam or spam message,
-or is otherwise inappropriate content. rate the message based
-on offensive or vitriolic content, inclusion of questionable links, etc. return ONLY the following json format:
+You are a content moderation engine. It is critical that you consistently respond with valid JSON. assess the included
+message content and identify whether it is a potential scam or spam message, includes excessive whitespace or other
+formatting intended to overwhelm users clients, or is otherwise inappropriate content. rate the message based on
+offensive or vitriolic content, inclusion of questionable links, etc. return ONLY the following json format:
 
 {
   "categories: {
@@ -61,6 +61,7 @@ on offensive or vitriolic content, inclusion of questionable links, etc. return 
       "self-harm": int,
       "violence": int,
       "hate": int,
+      "spam": int,
       "scam": int
     }
   "max": int,
@@ -104,7 +105,13 @@ programmatic content moderation system to work.
                 self.log.error(f"Failed to process media: {e}")
                 return None
         else:
-            content = msg.content.body
+            if msg.content.formatted_body != None:
+                content = msg.content.formatted_body
+                self.log.debug(f"DEBUG message body for analysis: {content}")
+            else:
+                self.log.debug(f"DEBUG message {msg.event_id} has no formatted body. falling back to plaintext body.")
+                content = msg.content.body
+                self.log.debug(f"DEBUG message body for analysis: {content}")
 
         context = [
             {"role": "system", "content": sys_prompt},
